@@ -13,6 +13,8 @@ gems:
 exclude:
   - Gemfile
   - Gemfile.lock
+  - .vscode/
+  - .github/
 
 # Produces a cleaner folder structure when using categories
 permalink: /blog/:year/:month/:title

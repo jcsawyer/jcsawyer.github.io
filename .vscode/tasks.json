@@ -1,0 +1,78 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Serve",
+      "type": "shell",
+      "command": "bundle exec jekyll serve --drafts --livereload",
+      "isBackground": true,
+      "problemMatcher": [
+        {
+          "owner": "jekyll",
+          "severity": "warning",
+          "fileLocation": "relative",
+          "pattern": {
+            "regexp": "^\\s*Liquid Warning: Liquid (?:syntax )?error \\(line (\\d+)\\): (.+) in (.+)$",
+            "line": 1,
+            "message": 2,
+            "file": 3
+          },
+          "background": {
+            "activeOnStart": true,
+          }
+        },
+        {
+          "owner": "jekyll",
+          "severity": "error",
+          "fileLocation": "relative",
+          "pattern": {
+            "regexp": "^\\s*Liquid Exception: Liquid (?:syntax )?error \\(line (\\d+)\\): (.+) in (.+)$",
+            "line": 1,
+            "message": 2,
+            "file": 3
+          },
+          "background": {
+            "activeOnStart": true,
+          }
+        }
+      ]
+    },
+    {
+      "label": "Build",
+      "type": "shell",
+      "command": "bundle exec jekyll build",
+      "problemMatcher": [
+        {
+          "owner": "jekyll",
+          "severity": "warning",
+          "fileLocation": "relative",
+          "pattern": {
+            "regexp": "^\\s*Liquid Warning: Liquid (?:syntax )?error \\(line (\\d+)\\): (.+) in (.+)$",
+            "line": 1,
+            "message": 2,
+            "file": 3
+          }
+        },
+        {
+          "owner": "jekyll",
+          "severity": "error",
+          "fileLocation": "relative",
+          "pattern": {
+            "regexp": "^\\s*Liquid Exception: Liquid (?:syntax )?error \\(line (\\d+)\\): (.+) in (.+)$",
+            "line": 1,
+            "message": 2,
+            "file": 3
+          }
+        }
+      ],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      }
+    }
+  ]
+}
+
+
+
+
