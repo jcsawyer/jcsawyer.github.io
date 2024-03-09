@@ -1,0 +1,48 @@
+---
+layout: post
+title:  "Hello, World!"
+date:   "2024-03-09 13:48:36"
+categories: blog
+excerpts_separator: <!--more-->
+---
+<p>Hello world written in a few languages just to say hello...</p>
+<!--more-->
+
+<h2 id="C">C<a href="#C"></a></h2>
+<pre>
+<code>#include &lt;stdio.h&gt;
+
+int main()
+{
+    printf("Hello, world!\n");
+    return 0;
+}</code>
+</pre>
+
+<pre><samp>$ <kbd>cc hello.c &amp;&amp; ./a.out</kbd>
+Hello, world!</samp>
+</pre>
+
+<h2 id="CSharp">C#<a href="#CSharp"></a></h2>
+<pre>
+<code>Console.WriteLine("Hello, world!");</code>
+</pre>
+
+<pre><samp>$ <kbd>dotnet run</kbd>
+Hello, world!</samp>
+</pre>
+
+<h2 id="Zig">Zig<a href="#Zig"></a></h2>
+<pre>
+<code>const std = @import("std");
+
+pub fn main() !void {
+    const stdout = std.io.getStdOut().writer();
+    try stdout.print("Hello, {s}!\n", .{"world"});
+}</code>
+</pre>
+
+<pre><samp>$ <kbd>zig build-exe hello.zig</kbd>
+$ <kbd>./hello</kbd>
+Hello, world!</samp>
+</pre>
