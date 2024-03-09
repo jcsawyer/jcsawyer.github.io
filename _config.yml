@@ -17,19 +17,19 @@ exclude:
   - .github/
 
 # Produces a cleaner folder structure when using categories
-permalink: /blog/:year/:month/:title
+permalink: pretty
 
 # Pagination Settings
 pagination:
   enabled: true
   per_page: 5
   offset: 0
-  permalink: '/blog/:num/'
-  title: ':title'
+  permalink: '/:num/'
+  title: ':title - page :num'
   limit: 0
   sort_field: 'date'
   sort_reverse: true
-  indexpage: 'blog'
+  category: "posts"
 
 # Defaults set by GitHub, only need for local serving
 # https://help.github.com/articles/configuring-jekyll/
