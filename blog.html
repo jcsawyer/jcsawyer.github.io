@@ -1,12 +1,27 @@
 ---
 layout: default
-permalink: /blog/
 title: Blog
+pagination:
+  enabled: true
 ---
 
-{% for post in site.posts %}
+{% for post in paginator.posts %}
   <h2 id="{{ post.title }}">{{ post.title }}<a href="#{{ post.title }}"></a></h2>
-  <p>{{ post.date }}</p>
+  <p>{{ post.date | date: "%b %-d, %Y" }}</p>
   <p>{{ post.excerpt }}</p>
   <p><a href="{{ post.url }}" title="Visit the {{ post.title }} blog post to read more">Read more</a></p>
 {% endfor %}
+
+{% if paginator.total_pages > 1 %}
+  <nav class="right">
+    {% if paginator.previous_page %}
+      <a href="{{ paginator.previous_page_path | prepend: site.baseurl | replace: '//', '/' }}">&larr; newer posts</a>
+      {% if paginator.next_page %}
+      • 
+      {% endif %}
+    {% endif %}
+    {% if paginator.next_page %}
+      <a href="{{ paginator.next_page_path | prepend: site.baseurl | replace: '//', '/' }}">older posts &rarr;</a>
+    {% endif %}
+  </nav>
+{% endif %}

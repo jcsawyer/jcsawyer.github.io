@@ -8,6 +8,27 @@ github_username:  jcsawyer
 collections:
   - projects
 
+gems:
+  - jekyll-paginate-v2
+exclude:
+  - Gemfile
+  - Gemfile.lock
+
+# Produces a cleaner folder structure when using categories
+permalink: /blog/:year/:month/:title
+
+# Pagination Settings
+pagination:
+  enabled: true
+  per_page: 5
+  offset: 0
+  permalink: '/blog/:num/'
+  title: ':title'
+  limit: 0
+  sort_field: 'date'
+  sort_reverse: true
+  indexpage: 'blog'
+
 # Defaults set by GitHub, only need for local serving
 # https://help.github.com/articles/configuring-jekyll/
 kramdown:
