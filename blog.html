@@ -1,0 +1,12 @@
+---
+layout: default
+permalink: /blog/
+title: Blog
+---
+
+{% for post in site.posts %}
+  <h2 id="{{ post.title }}">{{ post.title }}<a href="#{{ post.title }}"></a></h2>
+  <p>{{ post.date }}</p>
+  <p>{{ post.excerpt }}</p>
+  <p><a href="{{ post.url }}" title="Visit the {{ post.title }} blog post to read more">Read more</a></p>
+{% endfor %}
