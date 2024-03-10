@@ -292,7 +292,7 @@ may lead to this exception occurring if trying to send more than one message dur
 <p>I think my use of sections, also released with .NET 8, is the biggest issue here. Perhaps I could get it working without them using <a href="https://learn.microsoft.com/en-us/aspnet/core/blazor/components/dynamiccomponent?view=aspnetcore-8.0">dynamic components</a>, 
   by rendering the top level message and passing the component type and model through. Although I suspect this will only serve to degrade performance.</p>
 
-<p>There is also always the options of simply having a Blazor component for each message and rendering them.</p>
+<p>There is also always the option of simply having a Blazor component for each message and rendering them.</p>
 
 <h2 id="conclusion">Conclusion<a href="#conclusion"></a></h2>
 <p>Given the issues noted above I don't think this is something I'd be jumping on any time soon while RazorEngineCore has been consistently stable and fast.</p>
@@ -300,5 +300,5 @@ may lead to this exception occurring if trying to send more than one message dur
 <p>Until then, while I have a requirement to be able to leverage a mail template base layout, I can sit this update out for now...</p>
 
 <h2 id="summary">Summary<a href="#summary"></a></h2>
-<p>Of the course of this post I showed a rough implementation of my current system to email templating using <a href="https://github.com/adoconnection/RazorEngineCore"><code>RazorEngineCore</code></a> before how this could be migrated to use the new .NET 8 <code>HtmlRenderer</code>. 
+<p>Over the course of this post I showed a rough implementation of my current system to email templating using <a href="https://github.com/adoconnection/RazorEngineCore"><code>RazorEngineCore</code></a> before how this could be migrated to use the new .NET 8 <code>HtmlRenderer</code>. 
 I found an issue around using the Blazor sections and being unable to use the same instance of the renderer due to section subscriptions.</p>
