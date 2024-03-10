@@ -1,0 +1,304 @@
+---
+layout: post
+title: 'Exploring the .NET 8 Blazor HtmlRenderer for email message templating'
+date: '2024-03-10 15:04:02'
+categories: [aspnetcore, blazor, net8]
+excerpts_separator: <!--more-->
+---
+
+<p>The release of .NET 8 exposed the <code>HtmlRenderer</code> for rendering Blazor components independently of the ASP.NET Core hosting environment with a significant driving factor being the ability to generate HTML fragments for emails or generating content for sites statically.</p>
+<p>As someone who personally settled on <a href="https://github.com/adoconnection/RazorEngineCore"><code>RazorEngineCore</code></a> as my preferred method I want to investigate what a Blazor replacement might look like and how it might perform.</p>
+<!--more-->
+
+<p>Andrew Lock has an excellent series of posts covering exploration of .NET 8 features when they were in preview, you can find his post on Rendering Blazor components to a string <a href="https://andrewlock.net/exploring-the-dotnet-8-preview-rendering-blazor-components-to-a-string/#rendering-blazor-components-outside-of-an-asp-net-core-context">here</a>.</p>
+
+<h2 id="razor-engine-core">RazorEngineCore<a href="#razor-engine-core"></a></h2>
+<p>I'll start with a little context in to how one might use <code>RazorEngineCore</code> to provide email templates before taking a dive into Blazor.</p>
+
+<p>First we have a strongly typed base message model that different messages can extend:</p>
+
+<code>EmailMessageModel.cs</code>
+<pre>
+<code>namespace MailRendering.Models;
+
+public abstract record EmailMessageModel()
+{
+    public abstract string? PreHeaderText { get; }
+}</code>
+</pre>
+<p>You'll notice the <code>PreHeaderText</code>. This property is always present in the email message layout and so is required for all message models. If this isn't required, a far simpler system for model binding can be used.</p>
+
+<p>Then I'll create a simple <code>Hello</code> message model.</p>
+
+<code>HelloMessageModel.cs</code>
+<pre>
+<code>public record HelloMessageModel(string Name) : EmailMessageModel
+{
+    public override string? PreHeaderText =&gt; $"Hello, {Name}";
+}</code>
+</pre>
+
+<p>With the models created, I can add some Razor pages, our message layout and hello message.</p>
+
+<code>EmailMessage.cshtml</code>
+<pre>
+<code>&lt;html lang=&quot;en&quot;&gt;
+  &lt;head&gt;
+      &lt;meta http-equiv=&quot;Content-Type&quot; content=&quot;text/html; charset=utf-8&quot; /&gt;
+      &lt;meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1&quot;&gt;
+      &lt;meta http-equiv=&quot;X-UA-Compatible&quot; content=&quot;IE=edge&quot; /&gt;
+  &lt;/head&gt;
+  &lt;body style=&quot;background-color: #f4f4f4; margin: 0 !important; padding: 0 !important;&quot;&gt;
+  @if (!string.IsNullOrWhiteSpace(Model.PreHeaderText))
+  {
+      &lt;div style=&quot;display:none; font-size: 1px; line-height: 1px; max-height: 0; max-width: 0; opacity: 0; overflow: hidden;&quot;&gt;
+          @Model.PreHeaderText
+      &lt;/div&gt;
+  }
+  &lt;table border=&quot;0&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; width=&quot;100%&quot;&gt;
+      &lt;tr&gt;
+          &lt;td bgcolor=&quot;#ffffff&quot; align=&quot;center&quot;&gt;
+              &lt;table border=&quot;0&quot; cellpadding=&quot;0&quot; width=&quot;100%&quot; style=&quot;max-width: 600px;&quot;&gt;
+                  &lt;tr&gt;
+                      &lt;td align=&quot;center&quot; valign=&quot;top&quot; style=&quot;padding: 25px 10px 25px 10px;font-size: 18px;&quot;&gt;
+                          Email Header
+                      &lt;/td&gt;
+                  &lt;/tr&gt;
+              &lt;/table&gt;
+          &lt;/td&gt;
+      &lt;/tr&gt;
+      &lt;tr&gt;
+          &lt;td bgcolor=&quot;#ffffff&quot; align=&quot;center&quot;&gt;
+              &lt;table border=&quot;0&quot; cellpadding=&quot;0&quot; width=&quot;100%&quot; style=&quot;max-width: 600px;&quot;&gt;
+                  &lt;tr&gt;
+                      &lt;td align=&quot;left&quot; valign=&quot;top&quot; style=&quot;padding: 25px 10px 25px 10px;font-size: 18px;&quot;&gt;
+                          @RenderBody()
+                      &lt;/td&gt;
+                  &lt;/tr&gt;
+              &lt;/table&gt;
+          &lt;/td&gt;
+      &lt;/tr&gt;
+      &lt;tr&gt;
+          &lt;td bgcolor=&quot;#f4f4f4&quot; align=&quot;center&quot;&gt;
+              &lt;table border=&quot;0&quot; cellpadding=&quot;0&quot; width=&quot;100%&quot; style=&quot;max-width: 600px;&quot;&gt;
+                  &lt;tr&gt;
+                      &lt;td align=&quot;center&quot; valign=&quot;top&quot; style=&quot;padding: 25px 10px 25px 10px;font-size: 18px;&quot;&gt;
+                          Email Footer
+                      &lt;/td&gt;
+                  &lt;/tr&gt;
+              &lt;/table&gt;
+          &lt;/td&gt;
+      &lt;/tr&gt;
+  &lt;/table&gt;
+  &lt;/body&gt;
+  &lt;/html&gt;</code>
+</pre>
+
+<code>Hello.cshtml</code>
+<pre>
+<code>@{
+  Layout = "EmailMessage";
+}
+
+&lt;p style="margin: 0"&gt;
+  Hello, @Model.Name!
+&lt;/p&gt;</code>
+</pre>
+
+<p>And finally we can use something along the lines of the example <code>@Include</code> and <code>@Layout</code> handling that can be found on the RazerEngineCore Wiki <a href="https://github.com/adoconnection/RazorEngineCore/wiki/@Include-and-@Layout">here</a>.</p>
+<p>This will allow us to compile our templates like so:</p>
+
+<pre>
+<code>var messagePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Messages");
+  var emailMessage = await File.ReadAllTextAsync(Path.Combine(messagePath, "EmailMessage.cshtml"));
+  var helloMessage = await File.ReadAllTextAsync(Path.Combine(messagePath, "Hello.cshtml"));
+  
+  var parts = new Dictionary&lt;string, string&gt;
+  {
+      { "EmailMessage", emailMessage },
+  };
+  
+  var razorEngine = new RazorEngine();
+  _compiledTemplate = await razorEngine.CompileAsync(helloMessage, parts);</code>
+</pre>
+
+Rendering them can be done by simply calling <code>RunAsync</code> on the compiled template and passing in our model.
+
+<pre>
+<code>public Task&lt;string&gt; RenderEmailAsync&lt;TModel&gt;(
+  IRazorEngineCompiledTemplate template,
+  TModel model)
+  where TModel : IRazorEngineTemplate
+{
+  return template.RunAsync(model);
+}</code>
+</pre>
+
+<p>Storage, loading, saving, and/or caching of compiled templates is left up for the reader to consider implemented using a system like this.</p>
+
+<h2 id="switching-to-blazor">Switching to Blazor<a href="#switching-to-blazor"></a></h2>
+<p>We'll start by creating our Blazor components with a <code>LayoutComponentBase</code> for the root structure of an email message with a region to place a pre-header message to show in email clients and create a simple <code>Hello</code> message component with a model.</p>
+
+<code>_Imports.razor</code>
+<pre>
+<code>@using Microsoft.AspNetCore.Components.Sections</code>
+</pre>
+
+<code>EmailMessage.razor</code>
+<pre>
+<code>@inherits LayoutComponentBase
+&lt;html lang=&quot;en&quot;&gt;
+&lt;head&gt;
+    &lt;meta http-equiv=&quot;Content-Type&quot; content=&quot;text/html; charset=utf-8&quot; /&gt;
+    &lt;meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1&quot;&gt;
+    &lt;meta http-equiv=&quot;X-UA-Compatible&quot; content=&quot;IE=edge&quot; /&gt;
+&lt;/head&gt;
+&lt;body style=&quot;background-color: #f4f4f4; margin: 0 !important; padding: 0 !important;&quot;&gt;
+&lt;div style=&quot;display:none; font-size: 1px; line-height: 1px; max-height: 0; max-width: 0; opacity: 0; overflow: hidden;&quot;&gt;
+    &lt;SectionOutlet SectionName=&quot;pre-header-text&quot; /&gt;
+&lt;/div&gt;
+&lt;table border=&quot;0&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; width=&quot;100%&quot;&gt;
+    &lt;tr&gt;
+        &lt;td bgcolor=&quot;#ffffff&quot; align=&quot;center&quot;&gt;
+            &lt;table border=&quot;0&quot; cellpadding=&quot;0&quot; width=&quot;100%&quot; style=&quot;max-width: 600px;&quot;&gt;
+                &lt;tr&gt;
+                    &lt;td align=&quot;center&quot; valign=&quot;top&quot; style=&quot;padding: 25px 10px 25px 10px;font-size: 18px;&quot;&gt;
+                        Email Header
+                    &lt;/td&gt;
+                &lt;/tr&gt;
+            &lt;/table&gt;
+        &lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+        &lt;td bgcolor=&quot;#ffffff&quot; align=&quot;center&quot;&gt;
+            &lt;table border=&quot;0&quot; cellpadding=&quot;0&quot; width=&quot;100%&quot; style=&quot;max-width: 600px;&quot;&gt;
+                &lt;tr&gt;
+                    &lt;td align=&quot;left&quot; valign=&quot;top&quot; style=&quot;padding: 25px 10px 25px 10px;font-size: 18px;&quot;&gt;
+                        @Body
+                    &lt;/td&gt;
+                &lt;/tr&gt;
+            &lt;/table&gt;
+        &lt;/td&gt;
+    &lt;/tr&gt;
+    &lt;tr&gt;
+        &lt;td bgcolor=&quot;#f4f4f4&quot; align=&quot;center&quot;&gt;
+            &lt;table border=&quot;0&quot; cellpadding=&quot;0&quot; width=&quot;100%&quot; style=&quot;max-width: 600px;&quot;&gt;
+                &lt;tr&gt;
+                    &lt;td align=&quot;center&quot; valign=&quot;top&quot; style=&quot;padding: 25px 10px 25px 10px;font-size: 18px;&quot;&gt;
+                        Email Footer
+                    &lt;/td&gt;
+                &lt;/tr&gt;
+            &lt;/table&gt;
+        &lt;/td&gt;
+    &lt;/tr&gt;
+&lt;/table&gt;
+&lt;/body&gt;
+&lt;/html&gt;
+
+@code {
+
+}</code>
+</pre>
+
+<p>
+  This is a fairly standard email message that you might expect. A thing to consider is that this is simply a 
+  layout view with a <code>SectionOutlet</code> component and the <code>@Body</code> tag. The intention here 
+  is use this as a base for any shape of email to reduce unnecessary duplication.
+</p>
+<p>
+  Next is the <code>Hello</code> message component which will reference the <code>EmailMessage</code> layout and 
+  provide content for the <code>SectionContent</code> and <code>LayoutView</code>.
+</p>
+
+<code>Hello.razor</code>
+<pre>
+<code>@layout EmailMessage
+
+&lt;SectionContent SectionName=&quot;pre-header-text&quot;&gt;
+    Hello, @Name!
+&lt;/SectionContent&gt;
+
+&lt;LayoutView Layout=&quot;@typeof(EmailMessage)&quot;&gt;
+    &lt;p style=&quot;margin: 0&quot;&gt;
+        Hello, @Name!
+    &lt;/p&gt;    
+&lt;/LayoutView&gt;
+
+@code {
+    [Parameter]
+    public required string Name { get; set; }
+}</code>
+</pre>
+
+<p>With the components created, we will need to extend our message models to provide a dictionary of their properties for convenience building the <code>ParameterView</code>.</p>
+
+<code>EmailMessageModel.cs</code>
+<pre>
+<code>public abstract record EmailMessageModel()
+{
+    public abstract string? PreHeaderText { get; }
+
+    public abstract Dictionary&lt;string, object?&gt; ToDictionary();
+}</code>
+</pre>
+
+<code>HelloMessageModel.cs</code>
+<pre>
+<code>public record HelloMessageModel(string Name) : EmailMessageModel
+{
+    public override string? PreHeaderText =&gt; $"Hello, {Name}";
+
+    public override Dictionary&lt;string, object?&gt; ToDictionary()
+        =&gt; new()
+        {
+            { nameof(Name), Name },
+        };
+}</code>
+</pre>
+
+<p>With the messages and models in order, we can look to the <code>BlazorRenderer</code> and implement our render method.</p>
+<pre>
+<code>public Task&lt;string&gt; RenderEmailAsync&lt;TComponent, TModel&gt;(TModel model)
+  where TComponent : IComponent
+  where TModel : EmailMessageModel
+  =&gt; RenderEmailAsync&lt;TComponent&gt;(ParameterView.FromDictionary(model.ToDictionary()));
+
+private Task&lt;string&gt; RenderEmailAsync&lt;TComponent&gt;(ParameterView parameters)
+  where TComponent: IComponent
+{
+  return _htmlRenderer.Dispatcher.InvokeAsync(async () =&gt;
+  {
+      var output = await _htmlRenderer.RenderComponentAsync&lt;TComponent&gt;(parameters);
+      return output.ToHtmlString();
+  });
+}</code>
+</pre>
+
+<h2 id="trying-it-out">Trying it out<a href="#trying-it-out"></a></h2>
+<p>Using the renderer on it's own to render the email message works exactly as you'd expect.</p>
+
+<p>When trying to run benchmarks, it became apparent using it like this may not be as straight forward as maybe I'd like, but this is probably to be expected...</p>
+
+<pre>
+<samp>System.InvalidOperationException: There is already a subscriber to the content with the given section ID 'pre-header-text'.
+  at Microsoft.AspNetCore.Components.Sections.SectionRegistry.Subscribe(Object identifier, SectionOutlet subscriber)
+  at Microsoft.AspNetCore.Components.Sections.SectionOutlet.Microsoft.AspNetCore.Components.IComponent.SetParametersAsync(ParameterView parameters)
+  at Microsoft.AspNetCore.Components.Rendering.ComponentState.SupplyCombinedParameters(ParameterView directAndCascadingParameters)</samp>
+</pre>
+
+<p>This is likely going to be down to the shared <code>Dispatcher</code> in the <code>HtmlRenderer</code>. This may mean if registering it in DI with a scoped lifetime 
+may lead to this exception occurring if trying to send more than one message during the lifetime of the request.</p>
+
+<p>I think my use of sections, also released with .NET 8, is the biggest issue here. Perhaps I could get it working without them using <a href="https://learn.microsoft.com/en-us/aspnet/core/blazor/components/dynamiccomponent?view=aspnetcore-8.0">dynamic components</a>, 
+  by rendering the top level message and passing the component type and model through. Although I suspect this will only serve to degrade performance.</p>
+
+<p>There is also always the options of simply having a Blazor component for each message and rendering them.</p>
+
+<h2 id="conclusion">Conclusion<a href="#conclusion"></a></h2>
+<p>Given the issues noted above I don't think this is something I'd be jumping on any time soon while RazorEngineCore has been consistently stable and fast.</p>
+<p>It does however make sense that some of these issues would show when trying to use a freshly exposed API that was previously used for doing anything but this... But the API being made public is a promising step forward to being able to make the switch some day in the future.</p>
+<p>Until then, while I have a requirement to be able to leverage a mail template base layout, I can sit this update out for now...</p>
+
+<h2 id="summary">Summary<a href="#summary"></a></h2>
+<p>Of the course of this post I showed a rough implementation of my current system to email templating using <a href="https://github.com/adoconnection/RazorEngineCore"><code>RazorEngineCore</code></a> before how this could be migrated to use the new .NET 8 <code>HtmlRenderer</code>. 
+I found an issue around using the Blazor sections and being unable to use the same instance of the renderer due to section subscriptions.</p>
