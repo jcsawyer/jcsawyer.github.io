@@ -1,0 +1,443 @@
+---
+layout: post
+title: "Revisiting an old SHA256 implementation"
+date: 2024-03-16 22:22:20
+categories: [ blog ]
+excerpts_separator: <!--more-->
+---
+<p>Quite some years ago now, when I was an apprentice, my senior had set our small team a challenge to 
+build a SHA256 implementation in any language and compete for the fastest algorithm.</p>
+<p>This past week I unearthed the old code for my implementation and wanted to challenge myself to improve it 
+leveraging all the latest and greatest features that have come with .NET over the years...</p>
+<!--more-->
+
+<blockquote><p>For the sake of brevity, I have excluded standard constants and operations I have shared between implementations:</p>
+  <ul>
+    <li><code>K</code> - First 32 bits of the fractional parts of the cube roots of the first 64 primes</li>
+    <li><code>H</code> - Fractional parts of the square roots of the first 8 primes</li>
+    <li><code>sigma0</code> - method substitution for <code>s0</code></li>
+    <li><code>sigma1</code> - method substitution for <code>s1</code></li>
+    <li><code>Sigma0</code> - method substitution for <code>S0</code></li>
+    <li><code>Ch</code> - method substitution for <code>ch</code></li>
+    <li><code>Maj</code> - method substitution for <code>maj</code></li>
+  </ul>
+</blockquote>
+
+<h2 id="requirements">The requirements<a href="#requirements"></a></h2>
+<p>I should probably start by sharing the original requirements of this challenge as they'll probably be relevant later.</p>
+<ul>
+  <li>Any language may be used</li>
+  <li>The code must be able to hash the UTF8 encoded <code>test</code> with the result <code>9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08</code></li>
+  <li>Output casing is not important</li>
+  <li>Fastest implementation wins</li>
+  <li>The only resource you can use is the <a href="https://en.wikipedia.org/wiki/SHA-2">SHA-2 Wikipedia article</a></li>
+</ul>
+
+
+<h2 id="apprentice-implementation">My original apprenticeship implementation<a href="#apprentice-implementation"></a></h2>
+<blockquote><p><i>I would strongly advise <strong>against</strong> using this code, maybe my new implementation further down will be better, but if anything this apprentice code should serve as a guide of how <strong>not</strong> to implement SHA256 in C#.</i></p></blockquote>
+<p>So just how bad is it?</p>
+<p>It's not great... But hindsight is a wonderful thing and I was far from a <i>bad</i> apprentice, but I had never really looked at doing anything like this in the past.
+This challenge was a lot of fun to do and was one the things that inspired me to continue challenging myself in other areas of software engineering beyond simply the scope required for my job role.</p>
+
+<h3 id="the-apprenticeship-code">The code<a href="#the-apprenticeship-code"></a></h3>
+
+<pre>
+<code>public class SHA256
+{
+    private byte[] data;
+    private Queue&lt;byte&gt; heap;
+    public string Digest;
+
+    public SHA256(string str)
+    {
+        data = Encoding.UTF8.GetBytes(str);
+        heap = new Queue&lt;byte&gt;();
+
+        PreProcess();
+    }
+
+    private void PreProcess() { /* ... */ }
+    private void ProcessChunks() { /* ... */ }
+}</code>
+</pre>
+
+<p>So we're we're looking at using a <code>Queue&lt;byte&gt;</code> to store our data for hashing. A reasonable attempt, FIFO means we're at least processing data in the correct order, just dequeuing 64 bytes at a time to process...</p>
+<p>But you guessed right, old me was filling that queue with the provided data and doing our best to add the final <code>1</code> bit, <code>0</code> bit padding and the data length to fit in a total size divisible by <code>512</code> for our chunks.</p>
+
+<pre>
+<code>private void PreProcess()
+{
+    // Add bytes to heap
+    foreach (byte b in data)
+        heap.Enqueue(b);
+    // Add '1' to end of message
+    heap.Enqueue(0x80); // 0x80 = 10000000
+
+    // Get data length in bits
+    ulong length = (ulong)data.Length * 8;
+
+    // Get number of blocks required
+    ulong chunks = (ulong)Math.Ceiling((double)(length + 65) / 512);
+
+    // Find required padding (512 - 64) - (length + 1)
+    ulong padAmount = 0;
+    if (chunks == 1)
+        padAmount = 448 - (length + 1);
+    else
+        padAmount = 448 - (length % chunks) + 65;
+
+    // Add required number of 0 bytes to fill block
+    uint bytesToAdd = (uint)(padAmount - 7) / 8;
+    for (uint r = bytesToAdd; r &gt; 0; r--)
+        heap.Enqueue(0x00);
+
+    // Add ulong length on to end
+    byte[] len = BitConverter.GetBytes(length).Reverse().ToArray();
+    foreach (byte b in len)
+        heap.Enqueue(b);
+
+    ProcessChunks();
+}</code>
+</pre>
+
+<p>The chunk processing code is fairly inoffensive other than the setting of the <code>Digest</code> property instead of returning a <code>byte[]</code>.</p>
+
+<pre><code>private void ProcessChunks() 
+{
+    // Keep track of which chunk we're on
+    uint[] w = new uint[64];
+    // Initialise working variables a-h
+    uint a = H[0], b = H[1], c = H[2], d = H[3], e = H[4], f = H[5], g = H[6], h = H[7];
+    while (heap.Count &gt; 0) {
+        // Every chunk is 64 bytes long
+        if (heap.Count % 64 == 0) {
+            Array.Clear(w, 0, 64);
+        }
+
+        // Add chunk into w[0..15]
+        for (uint i = 0; i &lt; 16; i++) {
+            uint word = (uint)heap.Dequeue() &lt;&lt; 0x18
+                | (uint)heap.Dequeue() &lt;&lt; 0x10
+                | (uint)heap.Dequeue() &lt;&lt; 0x8
+                | heap.Dequeue();
+            w[i] = word;
+        }
+
+        // Prepare message schedule
+        for (uint i = 16; i &lt; 64; i++) {
+            w[i] = sigma1(w[i - 2]) + w[i - 7] + sigma0(w[i - 15]) + w[i - 16];
+        }
+
+        // Main loop
+        for (uint i = 0; i &lt; 64; i++) {
+            uint t1 = h + Sigma1(e) + Ch(e, f, g) + K[i] + w[i];
+            uint t2 = Sigma0(a) + Maj(a, b, c);
+            h = g;
+            g = f;
+            f = e;
+            e = d + t1;
+            d = c;
+            c = b;
+            b = a;
+            a = t1 + t2;
+        }
+        
+        // New hash values
+        a = H[0] + a;
+        b = H[1] + b;
+        c = H[2] + c;
+        d = H[3] + d;
+        e = H[4] + e;
+        f = H[5] + f;
+        g = H[6] + g;
+        h = H[7] + h;
+    }
+
+    Digest = $&quot;{String.Format(&quot;{0:X}&quot;, a)}{String.Format(&quot;{0:X}&quot;, b)}{String.Format(&quot;{0:X}&quot;, c)}{String.Format(&quot;{0:X}&quot;, d)}{String.Format(&quot;{0:X}&quot;, e)}{String.Format(&quot;{0:X}&quot;, f)}{String.Format(&quot;{0:X}&quot;, g)}{String.Format(&quot;{0:X}&quot;, h)}&quot;;
+}</code></pre>
+
+<h3 id="how-well-apprentice-performs">How well it performs<a href="#how-well-apprentice-performs"></a></h3>
+<p>Thanks to the folks behind <a href="https://benchmarkdotnet.org/">BenchmarkDotNet</a>, we have the perfect means of testing the performance of my old implementation, and later my new implementation, so I will run it against <code>System.Security.Cryptography.SHA256</code> for our baseline.</p>
+
+<pre><code>[MemoryDiagnoser]
+public class Sha256
+{
+    private static readonly byte[] Data = [0x74, 0x65, 0x73, 0x74];
+
+    private readonly SHA256 _sha256 = SHA256.Create();
+    
+    [Benchmark(Baseline = true)]
+    public byte[] SystemSecurityCryptography() =&gt; _sha256.ComputeHash(Data);
+
+    [Benchmark]
+    public string ApprenticeSha256() =&gt; new ApprenticeSHA256.ApprenticeSHA256(&quot;test&quot;).Digest;
+}</code></pre>
+<p>The results, I don't think, would be a surprise to anyone:</p>
+<pre><code><samp>BenchmarkDotNet v0.13.12, Windows 11 (10.0.22621.1778/22H2/2022Update/SunValley2)
+Intel Core i7-8700K CPU 3.70GHz (Coffee Lake), 1 CPU, 12 logical and 6 physical cores
+.NET SDK 8.0.201
+  [Host]     : .NET 8.0.2 (8.0.224.6711), X64 RyuJIT AVX2
+  DefaultJob : .NET 8.0.2 (8.0.224.6711), X64 RyuJIT AVX2
+
+
+| Method                     | Mean       | Error    | StdDev   | Ratio | RatioSD | Gen0   | Allocated | Alloc Ratio |
+|--------------------------- |-----------:|---------:|---------:|------:|--------:|-------:|----------:|------------:|
+| SystemSecurityCryptography |   416.0 ns |  6.91 ns |  6.46 ns |  1.00 |    0.00 | 0.0176 |     112 B |        1.00 |
+| ApprenticeSha256           | 1,416.0 ns | 26.79 ns | 23.75 ns |  3.41 |    0.09 | 0.2728 |    1712 B |       15.29 |</samp></code></pre>
+
+<h3 id="how-well-it-works">How well it works<a href="#how-well-it-works"></a></h3>
+<p>So as I alluded to with the inclusion of the challenge requirements, as I have come back to revisit this, I am far more confident in the art of test-driven development - something I likely didn't even consider at the time for just a fun challenge.</p>
+<p>So before starting on my new implementation I decided to construct a set of tests my implementation would need to pass and run them against my apprenticeship implementation.</p>
+<p>Thankfully NIST publishes test vectors for many cryptographic algorithm validation, where <a href="https://csrc.nist.gov/Projects/Cryptographic-Algorithm-Validation-Program/Secure-Hashing#shavs">the FIPS 180-4 publication</a> includes SHA-2 test vectors.</p>
+
+<blockquote>For the purposes of testing my old and new implementations, I am not including test vectors for bit-oriented messages as these don't appear to be supported by <code>System.Cryptography.SHA256</code> either so I'm leaving them out of scope.</blockquote>
+
+<p>Naturally my old implementation fails a considerable number of cases... Cases where the result was totally wrong and many others where it would attempt to dequeue bytes from a now empty queue.</p>
+<p>Suffice to say there's a lot wrong with it, but it did technically meet the requirements and could successfully hash the UTF8 encoded input of <code>test</code>.</p>
+<p>It just did it very, very, <i>very</i> badly...</p>
+
+
+<h2 id="building-a-new-implementation">Building a new implementation<a href="#building-a-new-implementation"></a></h2>
+<p>So I have a comprehensive suite of tests and I'm ready to begin. But there's a two primary things I want to focus on from my previous attempt:</p>
+<ul>
+  <li>Memory allocation - this is a big must fix.</li>
+  <li>Chunk processing - instead of loading all chunks, we should be able to process chunks in a more stream-able way so it can more easily be extended to accept a stream of data to hash.</li>
+</ul>
+
+<p>With those things in mind, and because I've been looking for an excuse to play around with them, I'll be taking advantage of <a href="https://learn.microsoft.com/en-us/dotnet/standard/memory-and-spans/">.NET memory- and span-related types</a>.</p>
+
+<h3 id="the-code">The code<a href="#the-code"></a></h3>
+<pre><code>public class FastSha256
+{
+    public byte[] ComputeHash(ReadOnlySpan&lt;byte&gt; data) { /* ... */ }
+    public void ComputeHash(ReadOnlySpan&lt;byte&gt; data, Span&lt;byte&gt; buffer) { /* ... */ }
+    private void ComputeHashInternal(
+        ReadOnlySpan&lt;byte&gt; data,
+        Span&lt;uint&gt; hash,
+        Span&lt;uint&gt; chunk) { /* ... */ }
+    private static void FillWords(Span&lt;uint&gt; chunk, ReadOnlySpan&lt;byte&gt; data) { /* ... */ }
+    private static void ExpandWords(Span&lt;uint&gt; chunk) { /* ... */ }
+    private static void MungeChunk(Span&lt;uint&gt; currentHash, Span&lt;uint&gt; chunk) { /* ... */ }
+    private static void ProcessChunk(
+        Span&lt;uint&gt; currentHash,
+        Span&lt;uint&gt; chunk,
+        ReadOnlySpan&lt;byte&gt; data) { /* ... */ }
+    private static byte[] ToByteArray(Span&lt;uint&gt; data) { /* ... */ }
+}</code></pre>
+
+<p>It's immediately clear this is quite a bit different to my old implementation but let's start by taking a look at the top level <code>ComputeHash</code> methods:</p>
+
+<pre><code>public byte[] ComputeHash(ReadOnlySpan&lt;byte&gt; data)
+{
+    Span&lt;uint&gt; hash = stackalloc uint[8] { H[0], H[1], H[2], H[3], H[4], H[5], H[6], H[7] };
+    ComputeHashInternal(data, hash);
+
+    return ToByteArray(hash);
+}
+
+public void ComputeHash(ReadOnlySpan&lt;byte&gt; data, Span&lt;byte&gt; buffer)
+{
+    Span&lt;uint&gt; hash = stackalloc uint[8] { H[0], H[1], H[2], H[3], H[4], H[5], H[6], H[7] };
+    ComputeHashInternal(data, hash);
+
+    for (var i = 0; i &lt; hash.Length * 4; i += 4)
+    {
+        var val = hash[i / 4];
+        var span = buffer[i..(i + 4)];
+        span[0] = (byte)(val &gt;&gt; 24);
+        span[1] = (byte)(val &gt;&gt; 16);
+        span[2] = (byte)(val &gt;&gt; 8);
+        span[3] = (byte)val;
+    }
+}</code></pre>
+
+<p>We are taking advantage of the <code>Span&lt;byte&gt;</code> type to avoid any heap allocations as it enables <code>stackalloc</code> to be used without the need for an
+<code>unsafe</code> context. The stack allocated memory block isn't subject to garbage collection and doesn't have to be pinned with a <code>fixed</code> statement. The 
+block of memory will automatically be discarded when the method returns.</p>
+<p>The overload that accepts a <code>Span&lt;byte&gt;</code> buffer allows the caller to provide a buffer to put the has into which removes the need for the method to make 
+any at all. The only allocation we have to make is when a buffer is not provided, we must allocate a single <code>byte[32]</code> array containing the hash:</p>
+
+<pre><code>private static byte[] ToByteArray(Span&lt;uint&gt; data)
+{
+    var result = GC.AllocateUninitializedArray&lt;byte&gt;(32);
+
+    var pos = 0;
+    for (var i = 0; i &lt; data.Length; i++)
+    {
+        var val = data[i];
+        result[pos++] = (byte)(val &gt;&gt; 24);
+        result[pos++] = (byte)(val &gt;&gt; 16);
+        result[pos++] = (byte)(val &gt;&gt; 8);
+        result[pos++] = (byte)val;
+    }
+
+    return result;
+}</code></pre>
+
+<p>This will result in <code>56B</code> allocated - 32 bytes for the has, and 24 bytes for the additional members of <code>System.Array&lt;T&gt;</code>.</p>
+
+<p>So to enable the ability to extend to handle a stream in the future, I have opted to move from a <code>ProcessChunks()</code> method to a <code>ProcessChunk()</code>
+method that gives ownership of the current hash values, the memory space to compute the current hash, and the span of data to compute in the chunk to the caller.</p>
+
+<pre><code>private static void ProcessChunk(Span&lt;uint&gt; currentHash, Span&lt;uint&gt; chunk, ReadOnlySpan&lt;byte&gt; data)
+{
+    FillWords(chunk, data);
+    ExpandWords(chunk);
+    MungeChunk(currentHash, chunk);
+}
+
+private static void FillWords(Span&lt;uint&gt; chunk, ReadOnlySpan&lt;byte&gt; data)
+{
+    chunk[0] = BinaryPrimitives.ReadUInt32BigEndian(data.Slice(0, 4));
+    chunk[1] = BinaryPrimitives.ReadUInt32BigEndian(data.Slice(4, 4));
+    chunk[2] = BinaryPrimitives.ReadUInt32BigEndian(data.Slice(8, 4));
+    chunk[3] = BinaryPrimitives.ReadUInt32BigEndian(data.Slice(12, 4));
+    chunk[4] = BinaryPrimitives.ReadUInt32BigEndian(data.Slice(16, 4));
+    chunk[5] = BinaryPrimitives.ReadUInt32BigEndian(data.Slice(20, 4));
+    chunk[6] = BinaryPrimitives.ReadUInt32BigEndian(data.Slice(24, 4));
+    chunk[7] = BinaryPrimitives.ReadUInt32BigEndian(data.Slice(28, 4));
+    chunk[8] = BinaryPrimitives.ReadUInt32BigEndian(data.Slice(32, 4));
+    chunk[9] = BinaryPrimitives.ReadUInt32BigEndian(data.Slice(36, 4));
+    chunk[10] = BinaryPrimitives.ReadUInt32BigEndian(data.Slice(40, 4));
+    chunk[11] = BinaryPrimitives.ReadUInt32BigEndian(data.Slice(44, 4));
+    chunk[12] = BinaryPrimitives.ReadUInt32BigEndian(data.Slice(48, 4));
+    chunk[13] = BinaryPrimitives.ReadUInt32BigEndian(data.Slice(52, 4));
+    chunk[14] = BinaryPrimitives.ReadUInt32BigEndian(data.Slice(56, 4));
+    chunk[15] = BinaryPrimitives.ReadUInt32BigEndian(data.Slice(60, 4));
+}
+
+private static void ExpandWords(Span&lt;uint&gt; chunk)
+{
+    for (var i = 16; i &lt; 64; i++)
+    {
+        chunk[i] = sigma1(chunk[i - 2]) + chunk[i - 7] + sigma0(chunk[i - 15]) + chunk[i - 16];
+    }
+}
+
+private static void MungeChunk(Span&lt;uint&gt; currentHash, Span&lt;uint&gt; chunk)
+{
+    Span&lt;uint&gt; workingHash = stackalloc uint[8]
+    {
+        currentHash[0], currentHash[1], currentHash[2], currentHash[3], currentHash[4], currentHash[5],
+        currentHash[6], currentHash[7]
+    };
+
+    for (var i = 0; i &lt; 64; i++)
+    {
+        uint t1 = workingHash[7] + Sigma1(workingHash[4]) + Ch(workingHash[4], workingHash[5], workingHash[6]) +
+                    K[i] + chunk[i];
+        uint t2 = Sigma0(workingHash[0]) + Maj(workingHash[0], workingHash[1], workingHash[2]);
+        workingHash[7] = workingHash[6];
+        workingHash[6] = workingHash[5];
+        workingHash[5] = workingHash[4];
+        workingHash[4] = workingHash[3] + t1;
+        workingHash[3] = workingHash[2];
+        workingHash[2] = workingHash[1];
+        workingHash[1] = workingHash[0];
+        workingHash[0] = t1 + t2;
+    }
+
+    currentHash[0] += workingHash[0];
+    currentHash[1] += workingHash[1];
+    currentHash[2] += workingHash[2];
+    currentHash[3] += workingHash[3];
+    currentHash[4] += workingHash[4];
+    currentHash[5] += workingHash[5];
+    currentHash[6] += workingHash[6];
+    currentHash[7] += workingHash[7];
+}</code></pre>
+
+<p>It's not largely different to my old implementation as this is largely the core of the SHA256 algorithm, but the notable difference is taking further advantage of <code>Span&lt;T&gt;</code> where appropriate.</p>
+<p>Where we do significantly diverge is the <code>ComputeHashInternal</code> which is responsible for owning the state as mentioned above as well as controlling the flow for processing chunks to ensure they're in the right shape.</p>
+
+<pre><code>private void ComputeHashInternal(ReadOnlySpan&lt;byte&gt; data, Span&lt;uint&gt; hash)
+{
+    Span&lt;uint&gt; chunk = stackalloc uint[64];
+    
+    var offset = 0;
+    var count = data.Length;
+    var chunks = count / 64;
+
+    while (chunks-- &gt; 0)
+    {
+        ProcessChunk(hash, chunk, data.Slice(offset, 64));
+        offset += 64;
+    }
+
+    var remainingBytes = count % 64;
+    Span&lt;byte&gt; lastChunk = stackalloc byte[64];
+    lastChunk.Clear();
+    switch (remainingBytes)
+    {
+        case 0:
+            lastChunk[0] = 0x80;
+
+            BinaryPrimitives.WriteInt64BigEndian(lastChunk.Slice(56, 8), count * 8);
+
+            ProcessChunk(hash, chunk, lastChunk);
+            break;
+        case 56:
+        case 57:
+        case 58:
+        case 59:
+        case 60:
+        case 61:
+        case 62:
+        case 63:
+            data.Slice(offset, remainingBytes).CopyTo(lastChunk);
+            lastChunk[remainingBytes] = 0x80;
+            ProcessChunk(hash, chunk, lastChunk);
+
+            lastChunk.Clear();
+            BinaryPrimitives.WriteInt64BigEndian(lastChunk.Slice(56, 8), count * 8);
+            ProcessChunk(hash, chunk, lastChunk);
+            break;
+        default:
+            data.Slice(offset, remainingBytes).CopyTo(lastChunk);
+            lastChunk[remainingBytes] = 0x80;
+
+            BinaryPrimitives.WriteInt64BigEndian(lastChunk.Slice(56, 8), count * 8);
+
+            ProcessChunk(hash, chunk, lastChunk);
+            break;
+    }
+}</code></pre>
+
+<p>While I'm sure there's probably still further optimizations that could be made here, we processing chunks at a time and then handling our last chunk(s) appropriately.</p>
+<p>It handles 0 remaining bytes which allows us to simply fill <code>1...0...{data length}</code> for the final block. We then handle cases where the remaining bytes does not 
+allow enough space to fit our ending bit (or byte <code>0x80</code>) and the data length. These cases require us append the ending bit, process the chunk and create use a new 
+emptied chunk where we append the data length at the end before processing it. Finally for anything in between where we have enough space to fill the cunk with the remaining data,
+the ending bit and the data length, we do that and process giving us our final computed hash.</p>
+
+<h3 id="how-well-it-performs">How well it performs<a href="#how-well-it-performs"></a></h3>
+<p>With these changes we can see a significant performance improvement, even ahead of the <code>System.Security.Cryptography</code> implementation.</p>
+<p>As expected we see a <code>56B</code> allocated for the overload without a buffer and <code>0B</code> for the overload with a buffer.</p>
+<pre>
+<code><samp>BenchmarkDotNet v0.13.12, Windows 11 (10.0.22621.1778/22H2/2022Update/SunValley2)
+Intel Core i7-8700K CPU 3.70GHz (Coffee Lake), 1 CPU, 12 logical and 6 physical cores
+.NET SDK 8.0.201
+  [Host]     : .NET 8.0.2 (8.0.224.6711), X64 RyuJIT AVX2
+  DefaultJob : .NET 8.0.2 (8.0.224.6711), X64 RyuJIT AVX2
+
+
+| Method                     | Mean     | Error   | StdDev  | Ratio | Gen0   | Allocated | Alloc Ratio |
+|--------------------------- |---------:|--------:|--------:|------:|-------:|----------:|------------:|
+| SystemSecurityCryptography | 405.9 ns | 5.42 ns | 4.23 ns |  1.00 | 0.0176 |     112 B |        1.00 |
+| JcFastSha256               | 387.2 ns | 3.28 ns | 2.91 ns |  0.95 | 0.0086 |      56 B |        0.50 |
+| JcFastSha256Span           | 381.9 ns | 4.46 ns | 3.95 ns |  0.94 |      - |         - |        0.00 |
+</samp></code>
+</pre>
+
+<h2 id="conclusion">Conclusion<a href="#conclusion"></a></h2>
+<p>This was once again an interesting and enjoyable challenge to look back and use a lot of what I've learned over the years and apply them to see how my development has changed.</p>
+<p>I would encounrage anyone to try this challenge for yourself, or get your teams involved for a bit of friendly competition.</p>
+<p>As for the implementation itself, I'm fairly happy with the results. I'm sure further improvements could be made and there's still the <code>Stream</code> implementation to do, 
+but you can find the project <a href="https://github.com/jcsawyer/Jc.FastSha">on my GitHub here</a>.</p>
+
+<h2 id="summary">Summary<a href="#summary"></a></h2>
+<p>This post was quite a joy to write. I showed my old SHA256 implementation I wrote when I was an apprentice and covered some of the details
+of my new attempt years later. </p>
+<p>Challenges are a great way to keep the cogs turning and help discover new and better ways to do things and recommend people give this challenge a 
+go for themselves or bring it to their teams as was the case orignally for me. 
+</p>
