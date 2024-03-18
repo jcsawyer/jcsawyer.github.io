@@ -1,0 +1,155 @@
+---
+layout: post
+title: "Calling Zig from C# with Jc.FastSha.Native"
+description: "Expanding upon my previous SHA256 C# implementation by writing and calling Zig code."
+date: 2024-03-18 18:54:49
+categories: [ blog ]
+excerpts_separator: <!--more-->
+---
+<p>I want to further expand upon my SHA256 implementation from my last post and see how I might be able to improve performance using a native implementation.</p>
+<p>As I've never attempted to call Zig from .NET, as a first pass I'll attempt to create a wrapper in Zig around the <code>std.crypto.hash.sha2.Sha256</code> implementation that I can then call from a C# library.</p>
+<!--more-->
+
+<h2 id="building-a-sha256-zig-wrapper">Building a Zig SHA256 wrapper<a href="#building-a-zig-sha256-wrapper"></a></h2>
+<p>
+  For our initial native SHA-256 implementation, we will write a simple wrapper around the existing <code>std.crypto.hash.sha2.Sha256</code> library. 
+  A method that accepts a many-item pointer (unkown length) of <code>data</code>, a <code>c_int</code> of data length <code>length</code> and a pointer to a <code>byte</code> array with a length of 256 bits to output the hash result to.
+</p>
+
+<pre><code>const std = @import(&quot;std&quot;);
+const Sha256 = std.crypto.hash.sha2.Sha256;
+
+export fn computeHash(data: [*]u8, length: c_int, buffer: *[Sha256.digest_length]u8) callconv(.C) void {
+    var sha256 = Sha256.init(.{});
+    sha256.update(data[0..@intCast(length)]);
+
+    buffer.* = sha256.finalResult();
+}</code></pre>
+
+<p>This implementation has the obvious caveat of requiring all bytes to be hashed to be loaded into memory, but this is perhaps something to improve in the future.</p>
+<p>For now one of the critical pieces here is the <code>callconv</code> syntax. In Zig, this attribute may be given to a function to describe how a function is called, including how arguments are supplied and how the return value is received. The calling conventions available in Zig can be seen <a href="https://ziglang.org/documentation/master/std/#std.builtin.CallingConvention">here</a>.</p> 
+<p>Because we are exporting the function, the Zig compiler will typically infer we are working with a <code>.C</code> calling convention, but the only guarantee is that there is no guarantee for the correct convention, and so we explicity specify the <code>.C</code> convention.</p>
+<p>While the SHA-256 library is covered by tests, we'll add some tests for completeness:</p>
+<pre><code>test &quot;computeHash should compute correct hash for empty string&quot; {
+  try assertEqualHash(&quot;e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855&quot;, &quot;&quot;);
+}
+
+test &quot;computeHash should compute correct hash for abc&quot; {
+  try assertEqualHash(&quot;ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad&quot;, &quot;abc&quot;);
+}
+
+fn assertEqualHash(comptime expected_hex: *const [Sha256.digest_length * 2:0]u8, comptime input: []const u8) !void {
+  var hash: [Sha256.digest_length]u8 = undefined;
+  var data: [input.len]u8 = undefined;
+  _ = std.mem.copy(u8, data[0..], input);
+
+  computeHash(&amp;data, input.len, &amp;hash);
+
+  var expected_bytes: [expected_hex.len / 2]u8 = undefined;
+  for (&amp;expected_bytes, 0..) |*r, i| {
+      r.* = std.fmt.parseInt(u8, expected_hex[2 * i .. 2 * i + 2], 16) catch unreachable;
+  }
+
+  try std.testing.expectEqualSlices(u8, &amp;expected_bytes, &amp;hash);
+}</code></pre>
+
+<p>With our code and tests, we can define our build to output our <code>Jc.FastSha.Zig.dll</code>:</p>
+<pre><code>const std = @import(&quot;std&quot;);
+
+pub fn build(b: *std.Build) void {
+    const target = b.standardTargetOptions(.{});
+    const optimize = b.standardOptimizeOption(.{});
+
+    const lib = b.addSharedLibrary(.{
+        .name = &quot;Jc.FastSha.Zig&quot;,
+        .root_source_file = .{ .path = &quot;src/sha256.zig&quot; },
+        .target = target,
+        .optimize = optimize,
+    });
+
+    b.installArtifact(lib);
+
+    const main_tests = b.addTest(.{
+        .root_source_file = .{ .path = &quot;src/main.zig&quot; },
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const run_main_tests = b.addRunArtifact(main_tests);
+
+    const test_step = b.step(&quot;test&quot;, &quot;Run library tests&quot;);
+    test_step.dependOn(&amp;run_main_tests.step);
+}</code></pre>
+
+<p>Finally we can build our native code with the following command:</p>
+<pre><kbd>zig build --build-file .\build.zig -Dtarget=native -Doptimize=ReleaseFast</kbd></pre>
+
+<h2 id="calling-zig-from-csharp">Calling Zig from C#<a href="#calling-zig-from-csharp"></a></h2>
+<p>With our native Zig DLL, we can create a new library and include it:</p>
+<pre><code>&lt;ItemGroup&gt;
+&lt;Content Include=&quot;..\Jc.FastSha.Zig\zig-out\lib\Jc.FastSha.Zig.dll&quot;&gt;
+  &lt;Link&gt;Jc.FastSha.Zig.dll&lt;/Link&gt;
+  &lt;CopyToOutputDirectory&gt;Always&lt;/CopyToOutputDirectory&gt;
+&lt;/Content&gt;
+&lt;/ItemGroup&gt;</code></pre>
+
+<p>And as we're using <code>.C</code> calling convetions, we can call our Zig library as any other native PInvoke:</p>
+<pre><code>public class FastSha256
+{
+    [DllImport(&quot;Jc.FastSha.Zig.dll&quot;, CallingConvention = CallingConvention.Cdecl)]
+    private static extern unsafe void computeHash(byte[] data, int length, byte* output);
+
+    public byte[] ComputeHash(ReadOnlySpan&lt;byte&gt; data)
+    {
+        Span&lt;byte&gt; buffer = stackalloc byte[32];
+        ComputeHash(data, buffer);
+
+        return buffer.ToArray();
+    }
+
+    public void ComputeHash(ReadOnlySpan&lt;byte&gt; data, Span&lt;byte&gt; buffer)
+    {
+        unsafe
+        {
+            fixed (byte* ptr = buffer)
+            {
+                computeHash(data.ToArray(), data.Length, ptr);
+            }
+        }
+    }
+}</code></pre>
+
+<h2 id="how-it-performs">How it performs<a href="#how-it-performs"></a></h2>
+<p>It's worth keeping in mind the Microsoft documentation regarding calling native functions from managed code found at <a href="https://learn.microsoft.com/en-us/cpp/dotnet/calling-native-functions-from-managed-code?view=msvc-170&redirectedfrom=MSDN#performance-considerations">Microsoft Learn: Calling Native Functions from Managed Code</a>.</p>
+<blockquote>
+  <p>PInvoke has an overhead of between 10 and 30 x86 instructions per call. In addition to this fixed cost, marshaling creates additional overhead. There is no marshaling cost between blittable types that have the same representation in managed and unmanaged code. For example, there is no cost to translate between int and Int32.</p>
+  <p>For better performance, have fewer PInvoke calls that marshal as much data as possible, instead of more calls that marshal less data per call.</p>
+</blockquote>
+<p>With this in mind, the performance impact should be near negligible and we <i>should</i> avoid marshaling costs as we are using the blittable types <code>byte</code>, or more specifically, a one-dimensional array of <code>byte</code>s, and an <code>int</code>.</p>
+<p>When we run the benchmarks we can see a rather juicy boost in performance:</p>
+<pre>
+<code><samp>BenchmarkDotNet v0.13.12, Windows 11 (10.0.22621.1778/22H2/2022Update/SunValley2)
+Intel Core i7-8700K CPU 3.70GHz (Coffee Lake), 1 CPU, 12 logical and 6 physical cores
+.NET SDK 8.0.201
+  [Host]     : .NET 8.0.2 (8.0.224.6711), X64 RyuJIT AVX2
+  DefaultJob : .NET 8.0.2 (8.0.224.6711), X64 RyuJIT AVX2
+
+
+  | Method                     | Mean     | Error   | StdDev  | Ratio | Gen0   | Allocated | Alloc Ratio |
+  |--------------------------- |---------:|--------:|--------:|------:|-------:|----------:|------------:|
+  | SystemSecurityCryptography | 405.9 ns | 5.42 ns | 4.23 ns |  1.00 | 0.0176 |     112 B |        1.00 |
+  | JcFastSha256               | 387.2 ns | 3.28 ns | 2.91 ns |  0.95 | 0.0086 |      56 B |        0.50 |
+  | JcFastSha256Span           | 381.9 ns | 4.46 ns | 3.95 ns |  0.94 |      - |         - |        0.00 |
+  | JcFastSha256Native         | 228.6 ns | 3.28 ns | 3.06 ns |  0.56 | 0.0138 |      88 B |        0.79 |
+</samp></code>
+</pre>
+
+<p>While the performance is a good improvement, there are still considerations to look at in the future - this implementation requires the data to be hashed to be loaded into memory in its entirety. This isn't ideal and perhaps a topic for another day.</p>
+
+<h2 id="conclusion">Conclusion<a href="#conclusion"></a></h2>
+<p>I think the performance tests speak for themselves. But at the same times, they don't show the full picture.</p>
+<p>Perhaps I should have more comprehensive performance tests as this implementation certainly isn't ideal for hashing large datasets. This is something I'd like to take another look at in the future to further optimize, but for now at least, the base requirements are covered 
+and it can confidently hash UTF8 encoded <code>test</code> quicker than my previous managed implementation.</p>
+
+<h2 id="summary">Summary<a href="#summary"></a></h2>
+<p>In this article I demonstrated how you can call a Zig library from C# and applied it to my <code>Jc.FashSha</code> library to do a surface-level investigation into the potential performance gains that could be had switching to a native implementation.</p>

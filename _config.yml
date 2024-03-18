@@ -1,6 +1,7 @@
 title: Joseph Sawyer
 email: joseph@jcsawyer.com
-description: "Joseph Sawyer's personal website."
+description: "Joseph Sawyer is a senior software engineer working in full-stack ASP.NET. He and his wife and daughter live in West Sussex, England."
+keywords: "Joseph Sawyer, Joe Sawyer, Joseph, Sawyer, software, engineer, technology"
 url: "https://jcsawyer.com/"
 twitter_username: JosephSawyer
 github_username:  jcsawyer
@@ -30,6 +31,12 @@ pagination:
   sort_field: 'date'
   sort_reverse: true
   category: "posts"
+
+defaults:
+  - scope:
+      type: "posts"
+    values:
+      og_type: "article"
 
 # Defaults set by GitHub, only need for local serving
 # https://help.github.com/articles/configuring-jekyll/
