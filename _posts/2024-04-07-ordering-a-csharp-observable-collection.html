@@ -1,0 +1,59 @@
+---
+layout: post
+title: "Ordering a C# ObservableCollection"
+description: "I share an implementation of an ObservableCollection that is always ordered."
+date: 2024-04-07 14:48:01
+categories: [ blog ]
+excerpts_separator: <!--more-->
+---
+<p>As I've been playing around a lot in Avalonia and MVVM recently, I encountered a requirement of storing a reactive collection of ordered items and this is how I achieved it.</p>
+<!--more-->
+<h2 id="the-implementation">The implementation<a href="#the-implementation"></a></h2>
+<p>This simple implementation wraps the existing <code>ObservableCollection&lt;T&gt;</code> from <code>System.Collections.ObjectModel</code> and holds properties for 
+the property selector for sorting, as well as whether the sort should be descending.</p>
+
+<pre>
+<code>public class SortedObservableCollection&lt;T&gt; : ObservableCollection&lt;T&gt;
+{
+    public SortedObservableCollection(IEnumerable&lt;T&gt; collection) : base(collection)
+    {
+    }
+    
+    public Func&lt;T, object&gt;? SortingSelector { get; init; }
+    public bool Descending { get; init; }
+    
+    protected override void OnCollectionChanged(NotifyCollectionChangedEventArgs e)
+    {
+        base.OnCollectionChanged(e);
+        if (SortingSelector is null
+            || e.Action == NotifyCollectionChangedAction.Remove
+            || e.Action == NotifyCollectionChangedAction.Reset)
+        {
+            return;
+        }
+                      
+        var query = this
+            .Select((item, index) =&gt; (Item: item, Index: index));
+        query = Descending
+            ? query.OrderByDescending(tuple =&gt; SortingSelector(tuple.Item))
+            : query.OrderBy(tuple =&gt; SortingSelector(tuple.Item));
+
+        var map = query.Select((tuple, index) =&gt; (OldIndex:tuple.Index, NewIndex:index))
+            .Where(o =&gt; o.OldIndex != o.NewIndex);
+
+        using var enumerator = map.GetEnumerator();
+        if (enumerator.MoveNext())
+        {
+            Move(enumerator.Current.OldIndex, enumerator.Current.NewIndex);
+        }
+    }
+}</code>
+</pre>
+
+<p>When the collection has changed, we ignore <code>Remove</code> and <code>Reset</code> <code>NotifyCollectionChangedAction</code> events as these will either not affect order, or their operations have already caused a re-ordering.</p>
+<p>We then perform the sort and perform a <code>Move()</code> for each item that has changed index.</p>
+<p>Using this method means events will fire for the remove and add internally, but for my simple use-cases this is not an issue but perhaps something I could take a look at again in the future.</p>
+
+<h2 id="summary">Summary<a href="#summary"></a></h2>
+<p>This post I shared a simple way of implementing an ordered observable collection in C# for my own future reference for re-use/to come back and improve.</p>
+<p>Feel free to use this in your own projects according to your requirements.</p>

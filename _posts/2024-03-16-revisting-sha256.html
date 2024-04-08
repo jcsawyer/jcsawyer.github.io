@@ -431,6 +431,10 @@ Intel Core i7-8700K CPU 3.70GHz (Coffee Lake), 1 CPU, 12 logical and 6 physical 
 </samp></code>
 </pre>
 
+<p>It's worth noting that while it looks more performant, this is only true for small sizes of data. More data to hash will result in slower speeds compared to <code>System.Security.Cryptogrpahy</code> 
+where the overhead of loading native code is offset by its performance with usage of SIMD operations, etc.</p>
+
+
 <h2 id="conclusion">Conclusion<a href="#conclusion"></a></h2>
 <p>This was once again an interesting and enjoyable challenge to look back and use a lot of what I've learned over the years and apply them to see how my development has changed.</p>
 <p>I would encounrage anyone to try this challenge for yourself, or get your teams involved for a bit of friendly competition.</p>
