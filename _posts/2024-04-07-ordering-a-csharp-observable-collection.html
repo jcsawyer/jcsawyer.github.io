@@ -8,6 +8,7 @@ excerpts_separator: <!--more-->
 ---
 <p>As I've been playing around a lot in Avalonia and MVVM recently, I encountered a requirement of storing a reactive collection of ordered items and this is how I achieved it.</p>
 <!--more-->
+
 <h2 id="the-implementation">The implementation<a href="#the-implementation"></a></h2>
 <p>This simple implementation wraps the existing <code>ObservableCollection&lt;T&gt;</code> from <code>System.Collections.ObjectModel</code> and holds properties for 
 the property selector for sorting, as well as whether the sort should be descending.</p>
