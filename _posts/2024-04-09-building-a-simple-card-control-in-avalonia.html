@@ -1,0 +1,122 @@
+---
+layout: post
+title:  "Building a Simple Card Control in Avalonia"
+description: "I share a very simple card control for use with Avalonia."
+date:   "2024-04-09 20:31"
+categories: [ blog ]
+excerpts_separator: <!--more-->
+---
+<p>I noticed <a href="https://github.com/AvaloniaUI/Avalonia/discussions/11462">this closed discussion</a> in the AvaloniaUI repository discussions that didn't exactly ring clear to me when I came across it as it just left me with the question:</p>
+<blockquote>But how can I also provide a basic template their content is displayed in?</blockquote>
+<p>Naturally the AvaloniaUI repo discussions section is probably not the place for people to do your homework for you, but I wanted to take a little time to demonstrate how you can build a simple "Card" control
+that accepts user provided content as well as provides a basic template.
+</p>
+<!--more-->
+
+<h2 id="the-documentation">The Documentation<a href="#the-documentation"></a></h2>
+<p>The first place to take a look is, of course, the documentation which can be found at <a href="https://docs.avaloniaui.net/docs/guides/custom-controls/">How To Create a Custom Control</a>.
+</p>
+<p>We can see there's two types of custom control to implement, with the choices being:
+</p>
+<ul>
+  <li>Templated Custom Control</li>
+  <li>Custom Control</li>
+  <li>User Control - a high-level approach for Custom Controls</li>
+</ul>
+
+<p>For our purposes we can use a custom control and leverage the existing <code>ContentControl</code> templated control to provide our content presenter which allows consumers to pass in other controls to be rendered.</p>
+
+<p>The steps defined in the documentation are:</p>
+<ol>
+  <li>Define the control class</li>
+  <li>Create the control template</li>
+  <li>Styling and templating</li>
+</ol>
+
+<h2 id="the-control-class">The Control Class<a href="#the-control-class"></a></h2>
+<p>
+For our simple card, our control's class is going to inherit from <code>ContentControl</code> and to demonstrate a little more extensibility, we're going to expose a <code>Title</code> property which can be set by the consumer.
+</p>
+
+<code>Card.cs</code>
+<pre><code>public class Card : ContentControl
+{
+    public static readonly StyledProperty&lt;string&gt; TitleProperty =
+        AvaloniaProperty.Register&lt;Card, string&gt;(nameof(Title), &quot;&quot;);
+
+    public string Title
+    {
+        get =&gt; GetValue(TitleProperty);
+        set =&gt; SetValue(TitleProperty, value);
+    }
+}
+</code></pre>
+
+<p>We register our <code>TitleProperty</code> and expose it with the required getter and setter. This can then be used by the consumer with <code>&lt;ns:Card Title=&quot;My Card&quot;&gt;&lt;/ns:Card&gt;</code>.</p>
+
+<h2 id="the-control-theme">The Control Theme<a href="#the-control-theme"></a></h2>
+<p>
+Next we want to create a control theme that specifies the visual appearance and structure of the control.
+</p>
+<code>Card.xaml</code>
+<pre><code>&lt;ResourceDictionary xmlns=&quot;https://github.com/avaloniaui&quot;
+                    xmlns:x=&quot;http://schemas.microsoft.com/winfx/2006/xaml&quot;
+                    xmlns:controls=&quot;using:MyControls.Controls&quot;&gt;
+
+    &lt;ControlTheme x:Key=&quot;{x:Type controls:Card}&quot; TargetType=&quot;controls:Card&quot;&gt;
+        &lt;Setter Property=&quot;Background&quot; Value=&quot;LightGray&quot; /&gt;
+        &lt;Setter Property=&quot;HorizontalAlignment&quot; Value=&quot;Stretch&quot; /&gt;
+        &lt;Setter Property=&quot;CornerRadius&quot; Value=&quot;8&quot; /&gt;
+        &lt;Setter Property=&quot;Margin&quot; Value=&quot;5, 0, 10, 10&quot; /&gt;
+        &lt;Setter Property=&quot;Padding&quot; Value=&quot;15&quot; /&gt;
+    &lt;/ControlTheme&gt;
+&lt;/ResourceDictionary&gt;</code></pre>
+
+<h2 id="what-about-user-content">What About User Content?<a href="what-about-user-content"></a></h2>
+<p>One of the things that seems to be missing from documentation and you can only really find by looking into the source for existing templated controls, is how to make use of the <code>Template</code> property and its corresponding <code>ControlTemplate</code>.</p>
+<p>Using this, we can extend our control to wrap the <code>ContentPresenter</code> with a border and title.</p>
+
+<code>Card.xaml</code>
+<pre><code>&lt;ResourceDictionary xmlns=&quot;https://github.com/avaloniaui&quot;
+                    xmlns:x=&quot;http://schemas.microsoft.com/winfx/2006/xaml&quot;
+                    xmlns:controls=&quot;using:MyControls.Controls&quot;&gt;
+
+    &lt;ControlTheme x:Key=&quot;{x:Type controls:Card}&quot; TargetType=&quot;controls:Card&quot;&gt;
+        &lt;Setter Property=&quot;Background&quot; Value=&quot;LightGray&quot; /&gt;
+        &lt;Setter Property=&quot;HorizontalAlignment&quot; Value=&quot;Stretch&quot; /&gt;
+        &lt;Setter Property=&quot;CornerRadius&quot; Value=&quot;8&quot; /&gt;
+        &lt;Setter Property=&quot;Margin&quot; Value=&quot;5, 0, 10, 10&quot; /&gt;
+        &lt;Setter Property=&quot;Padding&quot; Value=&quot;15&quot; /&gt;
+        &lt;Setter Property=&quot;Template&quot;&gt;
+            &lt;ControlTemplate&gt;
+                &lt;Border Background=&quot;{TemplateBinding Background}&quot;
+                        HorizontalAlignment=&quot;{TemplateBinding HorizontalAlignment}&quot;
+                        CornerRadius=&quot;{TemplateBinding CornerRadius}&quot;
+                        Margin=&quot;{TemplateBinding Margin}&quot;
+                        Padding=&quot;{TemplateBinding Padding}&quot;&gt;
+                    &lt;StackPanel Orientation=&quot;Vertical&quot;&gt;
+                        &lt;TextBlock 
+                            Margin=&quot;0,0,0,5&quot;
+                            FontSize=&quot;16&quot;
+                            Text=&quot;{TemplateBinding Title}&quot;&gt;
+                        &lt;/TextBlock&gt;
+                        &lt;Border Padding=&quot;5&quot;&gt;
+                            &lt;ContentPresenter Name=&quot;PART_ContentPresenter&quot;
+                                              ContentTemplate=&quot;{TemplateBinding ContentTemplate}&quot;
+                                              Content=&quot;{TemplateBinding Content}&quot;/&gt;
+                        &lt;/Border&gt;
+                    &lt;/StackPanel&gt;
+                &lt;/Border&gt;
+            &lt;/ControlTemplate&gt;
+        &lt;/Setter&gt;
+    &lt;/ControlTheme&gt;
+&lt;/ResourceDictionary&gt;</code></pre>
+
+<p>And there we have it! A simple card control we can use like so:</p>
+<pre><code>&lt;ns:Card Title=&quot;My Card&quot;&gt;
+    &lt;TextBlock Text=&quot;Some card content!&quot; /&gt;
+&lt;/ns:Card&gt;</code></pre>
+
+<h2 id="summary">Summary<a href="#summary"></a></h2>
+<p>This post I covered some of the Avalonia documentation and how it can be applied to making a custom control that allows for consumers to render content within a reusable template.</p>
+<p>Having reusable controls like this should help serve to keep your Avalonia views cleaner with DRY and KISS principles.</p>
