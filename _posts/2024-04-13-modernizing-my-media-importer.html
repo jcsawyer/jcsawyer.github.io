@@ -1,0 +1,80 @@
+---
+layout: post
+title: Modernizing my Media Importer
+description: "I modernize my ancient media import solution with Avalonia for running on macOS."
+date: "2024-04-13 12:22"
+categories: [blog]
+excerpts_separator: <!--more-->
+---
+
+<p>
+    For several years I've used an old project I wrote to help manage my
+    family's media automatically. I have recently made a switch to using macOS
+    as a daily driver and I can no longer run the old .NET Core Windows Forms
+    project, so it's time to modernize it with Avalonia.
+</p>
+<!--more-->
+
+<h2 id="the-context">The Context<a href="#the-context"></a></h2>
+<p>
+    So I have a NAS running one of my home servers which holds all media,
+    photos, videos, music, films, etc.
+</p>
+<p>
+    One of the first challenges was finding a way for me to get data from
+    devices like our phones onto the server in a convenient way. For this I used
+    NextCloud to provide access to the media storage, with additional access via
+    a VPN.
+</p>
+<p>
+    The next challenge was how to deal with inconsistent names for media files
+    depending on the device. Images and videos store metadata so leveraging this
+    was a top priority for any system of importing. For this, I can leverage the
+    MetadataExtractor NuGet package (<a
+        href="https://github.com/drewnoakes/metadata-extractor-dotnet"
+        >GitHub repo here</a
+    >).
+</p>
+<p>
+    So the final solution was to expose a <code>Drop</code> directory with
+    subdirectories for each user/device where photos and videos can just be
+    "dumped" and the media importer can then extract metadata, create new file
+    names based on their date and move them to a newly structured location.
+</p>
+
+<h2 id="the-code">The Code<a href="#the-code"></a></h2>
+<p>
+    The code is open source and can be found on
+    <a href="https://github.com/jcsawyer/Jc.MediaImporter">GitHub here</a>.
+</p>
+<p>
+    <img src="/images/media-importer.png" />
+</p>
+<blockquote>
+    <strong>DISCLAIMER:</strong> this code was thrown together pertty quickly
+    and your mileage may vary. Make sure you test against your needs if you want
+    to use it.
+</blockquote>
+
+<h2 id="the-migration-process">
+    The Migration Process<a href="#the-migration-process"></a>
+</h2>
+<p>
+    Unsurprisingly, the core of the original code was fairly simple and could be
+    immediately ported over to the new project.
+</p>
+<p>
+    What took me by surprise was my thinking historically has always been "use
+    Windows Forms to spin some UI up really quickly", but this project has
+    really shown me that modern application development and MVVM frameworks are
+    far superior as I was able to throw this new version together in less than
+    one morning where it was then ready to use immediately.
+</p>
+
+<h2 id="summary">Summary<a href="#summary"></a></h2>
+<p>
+    This post covered some of the context and process of migrating a tool I
+    built years back to manage my family media. The new version works
+    cross-platform so I can continue to effortlessly handle importing media from
+    all our devices.
+</p>
