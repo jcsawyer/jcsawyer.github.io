@@ -1,0 +1,55 @@
+---
+layout: post
+title: "Resizing a Proxmox LVM Partition"
+description: "Resizing a Proxmox LVM partition can be frustrating and I'm always forgetting just how to do it..."
+date: "2024-04-20 13:39:03"
+categories: [blog]
+exceprts_separator: <!--more-->
+---
+
+<p>
+    Every so often I find myself needing to resize a Proxmox VM disk and resize
+    the LVM partition, and everytime I forget entirely how to do it. So I
+    thought it's probably best for me to document how I do it so I can reference
+    this when I need it.
+</p>
+
+<!--more-->
+
+<h2 id="the-problem">The Problem<a href="#the-problem"></a></h2>
+<p>
+    So you have your Proxmox server setup and your VMs are working perfectly,
+    but one day a VM is misbehaving so you connect via VNC to take a look and
+    it's screaming at you have no available space in <code>/</code>.
+</p>
+<p>
+    It's bound to happen every so often, your VM has been rock-solid stable for
+    years, but you've unknowingly pushed it past your original limits and you
+    use <code>df</code>
+    to confirm your worst fears.
+</p>
+<pre><samp>$ <kbd>df -h</kbd>
+Filesystem                          Size    Used   Avail  Use%  Mounted on
+/dev/mapper/ubuntu--vg-ubuntu--lv   50Gi    50Gi       0  100%  /</samp></pre>
+
+<h2 id="the-solution">The Solution<a href="#the-solution"></a></h2>
+<p>
+    The first step, is of course, resizing the disk in Proxmox. This can be done
+    easily via the UI.
+</p>
+<p>
+    The second step is to extend the size of the logical volume to fill the free
+    space:
+</p>
+<pre><samp># <kbd>lvextend -l +100%FREE /dev/ubuntu-vg/ubuntu-lv</kbd>
+Size of logical volume ubuntu-vg/ubuntu-lv changed from 50GiB
+Logical volume ubuntu-vg/ubuntu-lv successfully resized.</samp></pre>
+
+<p>Our final step is to resize the file system itself:</p>
+<pre><samp># <kbd>resize2fs /dev/mapper/ubuntu--vg-ubuntu--lv</kbd>
+resize2fs 1.46.5 (30-Dec-2021)
+Filesystem at /dev/mapper/ubuntu--vg-ubuntu--lv is mounted on /; on-line resizing required
+old_desc_blocks = 3, new_desc_blocks = 25
+The filesystem on /dev/mapper/ubuntu--vg-ubuntu--lv is not 51962880 (4k) blocks long.</samp></pre>
+
+<p>And there we have it! Problem solved.</p>
