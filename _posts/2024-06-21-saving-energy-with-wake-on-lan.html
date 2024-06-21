@@ -1,0 +1,175 @@
+---
+layout: post
+title: "Saving Energy with Wake-On-LAN"
+description: "I configure my servers to shutdown overnight and automatically start up in the morning via a Raspberry Pi"
+date: "2024-04-20 13:39:03"
+categories: [blog]
+exceprts_separator: <!--more-->
+---
+
+<p>
+    Having home servers for dev and management of family data is fantastic. But
+    there is one downside that doesn't really get talked about that much, and
+    that is power consumption as your home lab/network grows in size.
+</p>
+<p>
+    In this article, I'm going to take a look at tackling the challenge of
+    reducing power consumption, doing my little bit to help save the environment
+    and my wallet from energy bills by scheduling shutdowns and starting them up
+    in the morning via a Raspberry.
+</p>
+<!--more-->
+
+<h2 id="the-setup">The Setup <a href="#the-setup"></a></h2>
+<p>
+    I have a Raspberry Pi 3 Model B+ lying around not currently doing anything
+    which draws a couple watts when idle - I intend to run this 24/7 to start
+    both my servers up first thing in the morning.
+</p>
+<p>
+    I have two servers, one HP ProLiant MicroServer Gen8 which is a Windows
+    Server and serves AD/DHCP/DNS for the network as well as a backup for
+    critical data on my other server. This server draws around 30-40 watts.
+</p>
+<p>
+    My other server is a Dell PowerEdge T430 running Proxmox for all other
+    services I require. This server draws around 160 watts.
+</p>
+
+<h2 id="the-plan">The Plan <a href="#the-plan"></a></h2>
+<p>
+    The plan is to leverage
+    <a href="https://packages.debian.org/unstable/etherwake"
+        ><code>Etherwake</code></a
+    >
+    in a simple Python script which will run as a service.
+</p>
+
+<h2 id="the-process">The Process <a href="#the-process"></a></h2>
+<p>
+    After installing Raspberry Pi OS Lite, as a GUI is not needed for this
+    headless setup, I set to work getting everything set up and ready.
+</p>
+
+<p>
+    First was making sure the system is up to date:
+</p>
+<pre><samp>$ <kbd>sudo apt update</kbd>
+$ <kbd>sudo apt upgrade -y</kbd>
+<samp></pre>
+
+<p>Next I could install Etherwake and Python:</p>
+<pre><samp>$ <kbd>sudo apt install etherwake</kbd>
+$ <kbd>sudo apt install python3</kbd>
+$ <kbd>sudo apt install python3-pip</kbd>
+</samp></pre>
+
+<p>Before we start writing our Python script, we will want to install a couple packages:</p>
+<ul>
+    <li><code>schedule</code> - enables us to fluently schedule operations</li>
+    <li><code>pytz</code> - enables scheduling to handle timezone/daylight savings</li>
+</ul>
+<pre><samp>$ <kbd>sudo apt install etherwake</kbd>
+$ <kbd>sudo apt install python3</kbd>
+$ <kbd>sudo apt install python3-pip</kbd>
+</samp></pre>
+
+<pre><samp>$ <kbd>cd ~/</kbd>
+<samp>$ <kbd>mkdir wake-on-lan</kbd>
+<samp>$ <kbd>cd wake-on-lan</kbd>
+<samp>$ <kbd>python -m venv ./python</kbd>
+<samp>$ <kbd>./python/bin/python -m pip install --upgrade pip</kbd>
+<samp>$ <kbd>./python/bin/pip install schedule</kbd>
+<samp>$ <kbd>./python/bin/pip install pytz</kbd>
+<samp>$ <kbd>nano ~/wol.py</kbd>
+</samp></pre>
+
+<p>Now we're ready to start writing our script</p>
+
+<p>Our script will look something like this:<p>
+<pre><code>import schedule
+import subprocess
+import time
+
+def _main():
+    print(&#39;Starting WoL scheduler...&#39;)
+
+    # Startup servers a 06:00 every day
+    schedule.every().day.at(&#39;06:00&#39;, &#39;Europe/London&#39;).do(startup)
+
+    while 1:
+        n = schedule.idle_seconds()
+        if n is None:
+            # No more jobs
+            break
+        elif n &gt; 0:
+            # Sleep until the next scheduled job
+            time.sleep(n)
+        schedule.run_pending()
+
+def startup():
+    # Server 1
+    startup_server(ip=&#39;192.168.0.1&#39;, macaddress=&#39;&lt;MACADDRESS&gt;&#39;)
+    # pve1
+    startup_server(ip=&#39;192.168.0.2&#39;, macaddress=&#39;&lt;MACADDRESS&gt;&#39;)
+
+def startup_server(ip, macaddress):
+    is_alive = subprocess.call([&#39;ping&#39;, &#39;-c&#39;, &#39;1&#39;, ip], stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT) == 0
+    if not is_alive:
+        print(&#39;Sending wake-up packet to &#39; + ip)
+        subprocess.Popen(&#39;/usr/sbin/etherwake -b &#39; + macaddress, shell=True, stdout=subprocess.PIPE)
+    else:
+        print (ip + &#39; is already running...&#39;)
+
+if __name__ == &#39;__main__&#39;:
+    _main()
+</code></pre>
+
+<p>
+    The core of this python script is that it will create a
+    schedule every day at 6AM Europe/London time. It will
+    run infinitely but sleep during the time remaining until
+    the next scheduled job. When a schedule is up, it sends
+    a ping to the device to determine if it's already on,
+    or sends an etherwake packet to start it.
+</p>
+
+<p>
+    Finally we want to get this running as a service on the Pi.
+    <br />
+    To do this, we're goiung to create a systemd service and configure it to run.
+</p>
+
+<pre><samp>$ <kbd>sudo nano /etc/systemd/system/wake-on-lan.service</kbd></samp></pre>
+
+<p>
+    In this file, we're going to configure the service like so:
+</p>
+
+<pre><code>[Unit]
+Description=Server starter
+
+[Service]
+User=root
+Group=root
+ExecStart=/home/&lt;USERNAME&gt;/wake-on-lan/python/bin/python /home/&lt;USERNAME&gt;/wake-on-lan/wol.py
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target</code></pre>
+
+<p>
+    Finally we can enable and start the service.
+</p>
+
+<pre><samp>$ <kbd>sudo systemctl enable wake-on-lan</kbd>
+$ <kbd>sudo systemctl start wake-on-lan</kbd></samp></pre>
+
+<p>
+    And we're done! The Pi should now be sending wake requests to my two servers at 6AM every morning. All that's left to do is configure the servers to auto shut down at 11 at night.
+</p>
+
+<h2 id="summary">Summary <a href="#summary"></a></h2>
+<p>
+    In this post I took you through my means of saving myself a little money by using a Raspberry Pi 3 Model B+ to allow me to set my servers to automatically switch off at night while still being woken up in the morning.
+</p>
